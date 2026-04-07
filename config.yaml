@@ -1,0 +1,166 @@
+# 音频处理系统配置文件
+# 线性4麦阵配置，麦间距3.5cm
+
+audio:
+  # 音频采样率 (Hz)
+  sample_rate: 16000
+
+  # 音频缓冲区大小
+  buffer_size: 1024
+
+  # 共享缓冲区的总时长（毫秒），用于解耦 I/O 和处理
+  # 建议 500-2000ms, 用于吸收处理延迟波动
+  shared_buffer_duration_ms: 1000
+
+  # 音频输入设备名称 (如果设置，则优先按名称选择设备)
+  device_name: "Mic Arry 8"  # 优先使用设备名称选择设备
+
+  # 音频输入设备索引 (如果device_name为空，则使用此索引; null表示使用默认设备)
+  device_index: null
+
+  # 麦克风位置配置 (单位: 米)
+  # 线性4麦阵，X轴排列，麦间距3.5cm
+  # role: 1=Mic(参与处理), 2=Ref(参考信号), 0=Unused(不处理)
+  mic_positions:
+    - {x: -0.0525, y: 0.0, z: 0.0, role: 1}  # 麦1
+    - {x: -0.0175, y: 0.0, z: 0.0, role: 1}  # 麦2
+    - {x:  0.0175, y: 0.0, z: 0.0, role: 1}  # 麦3
+    - {x:  0.0525, y: 0.0, z: 0.0, role: 1}  # 麦4
+    - {x:  0.0000, y: 0.0, z: 0.0, role: 0}  # 通道5: 未使用
+    - {x:  0.0000, y: 0.0, z: 0.0, role: 0}  # 通道6: 未使用
+    - {x:  0.0000, y: 0.0, z: 0.0, role: 2}  # 通道7: 回采通道A (参考)
+    - {x:  0.0000, y: 0.0, z: 0.0, role: 0}  # 通道8: 回采通道B (未使用)
+
+
+  # 要保存到 FLAC 文件的通道索引列表 (0-based)
+  # 如果为 null，则保存所有通道
+  recording_channels: [0, 1, 2, 3, 6]
+
+network:
+  # 输出端口号
+  output_port: 5000
+
+  # 网络协议
+  protocol: websocket
+
+processing:
+  # 是否启用音频处理
+  enabled: true
+
+  # 处理算法
+  algorithm: default
+
+  # WPE参数
+aec:
+  enabled: true                   # 启用AEC回声消除 (WebRTC APM)
+  reference_channel_index: 6    # 参考信号通道索引 (0-based)
+  # Legacy Linear AEC Parameters (kept for compatibility)
+  frame_size_ms: 10
+  fft_size: 256
+  filter_blocks: 12
+  ref_buffer_size: 8000
+  dtd_threshold: 0.75
+  default_latency_ms: 120
+
+wpe:
+  enable: true                   # 启用Online WPE去混响
+  save_output: false              # 保存WPE去混响后的音频
+  wpe_taps: 10                       # WPE滤波器抽头数
+  wpe_delay: 3                       # WPE延迟
+  wpe_alpha: 0.99                    # WPE 遗忘因子
+  stft_size: 1024
+  stft_shift: 512
+
+
+doa:
+  # DOA算法配置
+
+  # 算法开关
+  enable_mcra_denoise: true        # 启用MCRA降噪
+  save_mcra_output: true            # 保存MCRA处理后的音频
+  enable_fusion: false                # 启用频谱融合算法
+
+  # DOA参数
+  frame_length_ms: 64                # GCC-PHAT帧长度 (ms)
+  hop_length_ms: 32                  # STFT hop length (ms) for 50% overlap with 64ms frame
+  interpolation_rate: 4              # GCC-PHAT插值率
+  scan_step_deg: 1                   # 角度扫描步长 (度)
+  num_sources_expected: 4            # 期望声源数量 (1-4)
+  peak_height_threshold: 0.05        # find_peaks: 峰值高度阈值
+  peak_prominence: 0.2               # find_peaks: 峰值显著性
+  peak_distance_deg: 5              # find_peaks: 峰值最小角度距离
+  energy_gate_threshold: 0.001        # MVDR能量门槛，过滤低能量帧 - 设置为低值以匹配Oct15行为
+
+  # MCRA降噪参数
+  mcra:
+    alpha_s: 0.8                     # 功率谱平滑因子
+    alpha_d: 0.95                    # 噪声估计更新平滑因子
+    l_window: 15                     # 噪声跟踪窗口大小（帧）
+    gamma: 1.67                      # 噪声估计偏置补偿
+    delta: 5.0                       # 语音判决阈值 (dB)
+    stft_size: 1024
+    stft_shift: 256
+    gain_floor: 0.0                  # 增益下限
+    gain_exponent: 1.0               # 增益指数
+
+  # 频谱融合参数
+  fusion:
+
+  # 保存参数
+  save_original_audio: true          # 保存原始音频
+
+  # 可视化配置
+  visualization:
+    realtime_plot_enabled: false      # 启用实时绘图并保存
+    global_heatmap_enabled: true     # 启用全局热力图生成
+    global_doa_plot_enabled: true    # 启用全局DOA方向图生成
+
+enhancement:
+  # Enhancement 算法配置
+
+  # 算法开关
+  enable_mcra_denoise: true        # 启用MCRA降噪
+  save_denoised_output: true         # 保存降噪后的音频
+  enable_mvdr: true                 # 启用MVDR波束形成器
+  enable_mvdr_output: true      # 保存MVDR处理后的音频
+  save_apm_output: true             # 保存WebRTC APM处理后的音频
+  enable_webrtc_apm: true           # 启用WebRTC APM (非线性回声/降噪)
+  webrtc_apm:
+    enable_aec: true            # Echo Cancellation
+    enable_ns: true             # Noise Suppression
+    noise_suppression_level: 1  # 0: Low, 1: Moderate, 2: High, 3: VeryHigh
+    enable_ts: false            # Transient Suppression (Keyboards, etc.)
+    enable_agc: true            # Automatic Gain Control
+    gain_control_mode: 1        # 0: AdaptiveAnalog, 1: AdaptiveDigital, 2: FixedDigital
+    enable_hpf: true            # High Pass Filter
+    enable_vad: true            # Voice Activity Detection
+  enable_dtln: false
+  save_dtln_output: false
+  dtln_chunk_size_frames: 1
+  dtln_pool_size: 4
+
+  # 角度更新超时配置（秒）
+  angle_update_timeout: 10.0
+
+  # DOA参数
+  frame_length_ms: 64                # GCC-PHAT帧长度 (ms)
+  hop_length_ms: 32                  # STFT hop length (ms) for 50% overlap with 64ms frame
+  interpolation_rate: 4              # GCC-PHAT插值率
+
+  # MCRA降噪参数
+  mcra:
+    alpha_s: 0.85                    # [调整] 略微增加，使频谱平滑更稳定，减少音乐噪声
+    alpha_d: 0.95                    # [保持] 保持对稳态噪声的缓慢更新
+    l_window: 35                     # [大幅增加] 增大窗口，避免将长元音或连续语音误判为噪声
+    gamma: 1.2                       # [大幅减小] 降低噪声过估计倍数，减少对语音的误伤
+    delta: 2.5                       # [大幅减小] 降低语音判决阈值，保护弱语音（如 /f/, /s/, /th/ 音）
+    stft_size: 1024                  # [保持]
+    stft_shift: 256                  # [保持]
+    gain_floor: 0.15                 # [关键修改] 抬高增益下限，杜绝“死寂”和频谱空洞
+    gain_exponent: 1.0               # [保持] 幅度谱减法
+
+  mvdr:
+    target_angle: 90.0               # 目标检测角度（度）
+    tolerance: 10.0                   # +/-10.0
+    background_noise_alpha_slow: 0.99 # 背景噪声慢速更新率
+    inertial_hold_frames: 4           # 惯性保持：当目标丢失时，保持锁定状态的最大容忍帧数

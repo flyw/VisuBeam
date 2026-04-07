@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOA API Test Demo</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 2em; background-color: #f8f9fa; color: #343a40; }
+        h1, h2, h3, h4 { color: #007bff; border-bottom: 2px solid #dee2e6; padding-bottom: 0.5em; }
+        h4 { border-bottom-width: 1px; margin-top: 1.5em; }
+        .container { background: #ffffff; padding: 2em; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 2em; }
+        pre { background-color: #e9ecef; padding: 1em; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; }
+        input, button { font-size: 1em; padding: 0.5em; margin: 0.25em 0; border-radius: 4px; border: 1px solid #ced4da; }
+        button { background-color: #007bff; color: white; border-color: #007bff; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        button.disconnect, button.delete { background-color: #dc3545; border-color: #dc3545; }
+        button.disconnect:hover, button.delete:hover { background-color: #c82333; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2em; }
+        #log { max-height: 200px; overflow-y: auto; }
+        .saved-session { display: flex; align-items: center; gap: 1em; margin-bottom: 1em; }
+    </style>
+</head>
+<body>
+
+    <h1>DOA API Test Demo</h1>
+
+    <div class="container">
+        <h2>Log</h2>
+        <pre id="log"></pre>
+    </div>
+
+    <div class="grid">
+        <div class="container">
+            <h2>1. System Info (New)</h2>
+            <!-- GET Device ID -->
+            <button id="getDeviceIdBtn">GET /api/v1/system/device_id</button>
+            <hr style="margin: 1em 0;"> <!-- Add a separator for clarity -->
+            <!-- POST Device ID -->
+            <h3>Set Device ID (POST)</h3>
+            <input type="text" id="postDeviceIdInput" placeholder="Enter new Device ID" style="width: calc(100% - 2em);">
+            <button id="postDeviceIdBtn" style="margin-top: 0.5em;">POST /api/v1/system/device_id</button>
+            <h3>Response:</h3>
+            <pre id="deviceIdResult">(Click button to fetch/set)</pre>
+        </div>
+
+        <div class="container">
+            <h2>2. Update Tracking (HTTP)</h2>
+            <form id="update-form">
+                <input type="number" id="update-id" placeholder="Person ID (e.g., 101)" required>
+                <input type="number" id="update-angle" placeholder="Angle (e.g., 45.5)" step="0.1" required>
+                <button type="submit">Add to List</button>
+            </form>
+            <h3>Pending Update List:</h3>
+            <pre id="update-list">[]</pre>
+            <div style="margin-top: 10px;">
+                <button id="send-update">POST (Once)</button>
+                <button id="start-heartbeat" style="background-color: #28a745; border-color: #28a745;">Start Heartbeat (5s)</button>
+                <button id="stop-heartbeat" class="disconnect" disabled>Stop Heartbeat</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <h2>3. Person Leave (HTTP)</h2>
+            <form id="leave-form">
+                <input type="number" id="leave-id" placeholder="Person ID to remove" required>
+                <button type="submit">POST /api/v1/tracking/leave</button>
+            </form>
+        </div>
+
+        <div class="container">
+            <h2>4. Angle Stream (WebSocket)</h2>
+            <button id="connect-angles">Connect to /ws/tracking/angles</button>
+            <button id="disconnect-angles" class="disconnect" disabled>Disconnect</button>
+            <h3>Received Angles:</h3>
+            <pre id="angles-data">Not connected</pre>
+        </div>
+
+        <div class="container">
+            <h2>5. Enhanced Audio (WebSocket)</h2>
+            <form id="audio-form">
+                <input type="number" id="audio-id" placeholder="Person ID" required>
+                <button type="submit">Connect to /ws/audio/enhanced/{id}</button>
+            </form>
+            <h3>Active Audio Streams:</h3>
+            <div id="audio-streams"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>6. Saved Sessions (New)</h2>
+        <div id="saved-sessions">
+            <p>Audio from sessions that have "left" will appear here.</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>7. Automated Tracking Simulation</h2>
+        <div class="grid">
+            <div>
+                <label>Person ID:</label>
+                <input type="number" id="sim-id" value="101" placeholder="ID">
+            </div>
+            <div>
+                <label>Start Angle:</label>
+                <input type="number" id="sim-angle" value="0.0" step="1.0" placeholder="Angle">
+            </div>
+            <div>
+                <label>Increment per 5s:</label>
+                <input type="number" id="sim-step" value="5.0" step="1.0" placeholder="Step">
+            </div>
+        </div>
+        <div style="margin-top: 1em;">
+            <button id="sim-start">Start Simulation (5s interval)</button>
+            <button id="sim-stop" class="disconnect" disabled>Stop Simulation</button>
+        </div>
+        <h3>Simulation Log:</h3>
+        <pre id="sim-log">Idle</pre>
+    </div>
+
+
+    <script>
+        const log = document.getElementById('log');
+        const wsUrl = `ws://${location.hostname}:8000`;
+        const httpUrl = `http://${location.hostname}:8000`;
+
+        let updateList = [];
+        let anglesSocket = null;
+        let audioSockets = {};
+        const audioContexts = {}; // For real-time playback
+        
+        // Simulation State
+        let simInterval = null;
+        let simCurrentAngle = 0.0;
+
+        function logMessage(message) {
+            console.log(message);
+            log.textContent = `[${new Date().toLocaleTimeString()}] ${message}\n${log.textContent}`;
+        }
+
+        // --- 7. Automated Simulation ---
+        const simStartBtn = document.getElementById('sim-start');
+        const simStopBtn = document.getElementById('sim-stop');
+        const simLogEl = document.getElementById('sim-log');
+
+        simStartBtn.addEventListener('click', () => {
+            const id = parseInt(document.getElementById('sim-id').value);
+            const startAngle = parseFloat(document.getElementById('sim-angle').value);
+            const step = parseFloat(document.getElementById('sim-step').value);
+
+            if (isNaN(id) || isNaN(startAngle) || isNaN(step)) {
+                alert("Please enter valid numbers for ID, Angle, and Step.");
+                return;
+            }
+
+            if (simInterval) clearInterval(simInterval);
+
+            simCurrentAngle = startAngle;
+            simStartBtn.disabled = true;
+            simStopBtn.disabled = false;
+            simLogEl.textContent = `Simulation started for ID ${id}. Initial Angle: ${simCurrentAngle}`;
+
+            // Send first update immediately
+            sendSimUpdate(id, simCurrentAngle);
+
+            simInterval = setInterval(() => {
+                simCurrentAngle += step;
+                // Normalize angle 0-360 if desired, but raw is fine too
+                if (simCurrentAngle >= 360) simCurrentAngle -= 360;
+                if (simCurrentAngle < 0) simCurrentAngle += 360;
+                
+                sendSimUpdate(id, simCurrentAngle);
+            }, 5000);
+        });
+
+        simStopBtn.addEventListener('click', () => {
+            if (simInterval) {
+                clearInterval(simInterval);
+                simInterval = null;
+            }
+            simStartBtn.disabled = false;
+            simStopBtn.disabled = true;
+            simLogEl.textContent += `\nSimulation stopped.`;
+        });
+
+        async function sendSimUpdate(id, angle) {
+            const payload = [{ id: id, angle: angle }];
+            try {
+                const response = await fetch(`${httpUrl}/api/v1/tracking/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Request failed');
+                
+                const msg = `Sent update: ID=${id}, Angle=${angle.toFixed(1)}`;
+                logMessage(msg);
+                simLogEl.textContent = `${msg}\n${simLogEl.textContent}`;
+            } catch (error) {
+                const errMsg = `Sim Error: ${error.message}`;
+                logMessage(errMsg);
+                simLogEl.textContent = `${errMsg}\n${simLogEl.textContent}`;
+            }
+        }
+
+        // --- 1. System Info ---
+        const getDeviceIdBtn = document.getElementById('getDeviceIdBtn');
+        const postDeviceIdInput = document.getElementById('postDeviceIdInput');
+        const postDeviceIdBtn = document.getElementById('postDeviceIdBtn');
+        const deviceIdResultEl = document.getElementById('deviceIdResult');
+
+        getDeviceIdBtn.addEventListener('click', async () => {
+            deviceIdResultEl.textContent = 'Fetching...';
+            try {
+                logMessage('Fetching system device ID...');
+                const response = await fetch(`${httpUrl}/api/v1/system/device_id`);
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Request failed');
+                logMessage(`Device ID received: ${JSON.stringify(result)}`);
+                deviceIdResultEl.textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                logMessage(`Device ID error: ${error.message}`);
+                deviceIdResultEl.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        postDeviceIdBtn.addEventListener('click', async () => {
+            const deviceId = postDeviceIdInput.value;
+            if (!deviceId) {
+                alert('Please enter a Device ID.');
+                return;
+            }
+            deviceIdResultEl.textContent = 'Posting...';
+            try {
+                logMessage(`Posting new device ID: ${deviceId}`);
+                const response = await fetch(`${httpUrl}/api/v1/system/device_id`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_id: deviceId }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Request failed');
+                logMessage(`Device ID post success: ${JSON.stringify(result)}`);
+                deviceIdResultEl.textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                logMessage(`Device ID post error: ${error.message}`);
+                deviceIdResultEl.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        // --- 2. Update Tracking ---
+        const updateForm = document.getElementById('update-form');
+        const updateListEl = document.getElementById('update-list');
+        const sendUpdateBtn = document.getElementById('send-update');
+        const startHeartbeatBtn = document.getElementById('start-heartbeat');
+        const stopHeartbeatBtn = document.getElementById('stop-heartbeat');
+        
+        let heartbeatInterval = null;
+
+        updateForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const id = parseInt(document.getElementById('update-id').value);
+            const angle = parseFloat(document.getElementById('update-angle').value);
+            if (!isNaN(id) && !isNaN(angle)) {
+                // If ID exists, update it, else add new
+                const existingIndex = updateList.findIndex(item => item.id === id);
+                if (existingIndex > -1) {
+                    updateList[existingIndex].angle = angle;
+                } else {
+                    updateList.push({ id, angle });
+                }
+                updateListEl.textContent = JSON.stringify(updateList, null, 2);
+                updateForm.reset();
+            }
+        });
+
+        async function postUpdate(list) {
+            try {
+                logMessage(`Sending update: ${JSON.stringify(list)}`);
+                const response = await fetch(`${httpUrl}/api/v1/tracking/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(list),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Request failed');
+                logMessage(`Update success: ${JSON.stringify(result)}`);
+                return true;
+            } catch (error) {
+                logMessage(`Update error: ${error.message}`);
+                return false;
+            }
+        }
+
+        sendUpdateBtn.addEventListener('click', async () => {
+            if (updateList.length === 0) {
+                logMessage('Update list is empty.');
+                return;
+            }
+            const success = await postUpdate(updateList);
+            if (success) {
+                updateList = [];
+                updateListEl.textContent = '[]';
+            }
+        });
+
+        startHeartbeatBtn.addEventListener('click', () => {
+            if (updateList.length === 0) {
+                alert('Add items to the list first.');
+                return;
+            }
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            
+            // Send immediately
+            postUpdate(updateList);
+            
+            heartbeatInterval = setInterval(() => {
+                if (updateList.length > 0) {
+                    postUpdate(updateList);
+                }
+            }, 5000);
+            
+            startHeartbeatBtn.disabled = true;
+            stopHeartbeatBtn.disabled = false;
+            sendUpdateBtn.disabled = true;
+            logMessage("Heartbeat started (5s interval).");
+        });
+
+        stopHeartbeatBtn.addEventListener('click', () => {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+            startHeartbeatBtn.disabled = false;
+            stopHeartbeatBtn.disabled = true;
+            sendUpdateBtn.disabled = false;
+            logMessage("Heartbeat stopped.");
+        });
+
+        // --- 3. Person Leave (HTTP) ---
+        const leaveForm = document.getElementById('leave-form');
+        leaveForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = parseInt(document.getElementById('leave-id').value);
+            if (isNaN(id)) return;
+            try {
+                logMessage(`Sending leave for ID: ${id}`);
+                const response = await fetch(`${httpUrl}/api/v1/tracking/leave`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || 'Request failed');
+                logMessage(`Leave success: ${JSON.stringify(result)}`);
+            } catch (error) {
+                logMessage(`Leave error: ${error.message}`);
+            }
+        });
+
+        // --- 4. Angle Stream ---
+        const connectAnglesBtn = document.getElementById('connect-angles');
+        const disconnectAnglesBtn = document.getElementById('disconnect-angles');
+        const anglesDataEl = document.getElementById('angles-data');
+
+        connectAnglesBtn.addEventListener('click', () => {
+            if (anglesSocket) {
+                logMessage('Angle stream already connected.');
+                return;
+            }
+            anglesSocket = new WebSocket(`${wsUrl}/ws/tracking/angles`);
+            
+            anglesSocket.onopen = () => {
+                logMessage('Angle stream connected.');
+                anglesDataEl.textContent = 'Connected. Waiting for data...';
+                connectAnglesBtn.disabled = true;
+                disconnectAnglesBtn.disabled = false;
+            };
+            
+            anglesSocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                logMessage(`Received angles: ${event.data}`);
+                anglesDataEl.textContent = JSON.stringify(data, null, 2);
+            };
+
+            anglesSocket.onclose = (event) => {
+                logMessage(`Angle stream disconnected. Code: ${event.code}, Reason: ${event.reason}`);
+                anglesDataEl.textContent = 'Not connected';
+                anglesSocket = null;
+                connectAnglesBtn.disabled = false;
+                disconnectAnglesBtn.disabled = true;
+            };
+
+            anglesSocket.onerror = (error) => {
+                logMessage(`Angle stream error: ${error.message || 'An unknown error occurred.'}`);
+            };
+        });
+
+        disconnectAnglesBtn.addEventListener('click', () => {
+            if (anglesSocket) {
+                anglesSocket.close();
+            }
+        });
+
+        // --- 5. Enhanced Audio (Real-time Playback) ---
+        const audioForm = document.getElementById('audio-form');
+        const audioStreamsContainer = document.getElementById('audio-streams');
+
+        audioForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const personId = document.getElementById('audio-id').value;
+            if (!personId) return;
+
+            if (audioSockets[personId]) {
+                logMessage(`Audio stream for person ID ${personId} is already connected.`);
+                return;
+            }
+
+            const newSocket = new WebSocket(`${wsUrl}/ws/audio/enhanced/${personId}`);
+            newSocket.binaryType = 'arraybuffer'; // Important for receiving raw binary data
+            logMessage(`Attempting to connect audio stream for person ID: ${personId}`);
+            
+            const streamDiv = document.createElement('div');
+            streamDiv.id = `audio-stream-${personId}`;
+            streamDiv.innerHTML = `
+                <h4>Stream for Person ID: ${personId}</h4>
+                <pre>Connecting...</pre>
+                <button class="disconnect">Disconnect</button>
+            `;
+            audioStreamsContainer.appendChild(streamDiv);
+
+            newSocket.onopen = () => {
+                logMessage(`Audio stream connected for person ID: ${personId}`);
+                streamDiv.querySelector('pre').textContent = 'Connected. Waiting for data...';
+                audioSockets[personId] = newSocket;
+                
+                // Setup Web Audio API for this stream
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                audioContexts[personId] = {
+                    context: audioCtx,
+                    nextPlayTime: audioCtx.currentTime,
+                    personId: personId
+                };
+            };
+
+            newSocket.onmessage = async (event) => {
+                const audioState = audioContexts[personId];
+                if (!audioState || !(event.data instanceof ArrayBuffer)) return;
+
+                const buffer = event.data;
+                const view = new DataView(buffer);
+                
+                // 1. Read Header Length (Big Endian)
+                const headerLen = view.getUint32(0, false); 
+                
+                // 2. Read JSON Header
+                const textDecoder = new TextDecoder("utf-8");
+                // Create a view for the JSON bytes
+                const jsonBytes = new Uint8Array(buffer, 4, headerLen);
+                const jsonString = textDecoder.decode(jsonBytes);
+                let metadata = [];
+                try {
+                    metadata = JSON.parse(jsonString);
+                } catch (e) {
+                    console.error("JSON parse error", e);
+                }
+
+                // 3. Update UI with Metadata
+                const pre = streamDiv.querySelector('pre');
+                const receiveTime = new Date().toLocaleTimeString();
+                let doaInfo = "DOA: N/A";
+                if (metadata && metadata.length > 0) {
+                     // Extract angles from metadata list. 
+                     // Metadata items structure: [ [[angle, energy], ...], ... ]
+                     const angles = metadata.map(frameDoa => {
+                        if (frameDoa && frameDoa.length > 0) {
+                            // Display as "Angle° (E: Energy)"
+                            return frameDoa.map(d => `${d[0].toFixed(1)}° (E:${d[1].toFixed(2)})`).join(', ');
+                        }
+                        return '';
+                     }).filter(s => s).join(' | ');
+                     if (angles) doaInfo = `DOA: [${angles}]`;
+                }
+                pre.textContent = `[${receiveTime}] ${doaInfo} | Pkg: ${buffer.byteLength}b`;
+
+                // 4. Read Audio Data
+                const audioOffset = 4 + headerLen;
+                // Slice creates a copy, ensuring proper byte alignment for Int16Array
+                const audioRawBytes = buffer.slice(audioOffset);
+                const pcmData = new Int16Array(audioRawBytes);
+                
+                const float32Data = new Float32Array(pcmData.length);
+                for (let i = 0; i < pcmData.length; i++) {
+                    float32Data[i] = pcmData[i] / 32768.0; // Convert 16-bit PCM to [-1.0, 1.0] float
+                }
+
+                // THE FIX: Create buffer with the correct 16kHz sample rate
+                const audioBuffer = audioState.context.createBuffer(1, float32Data.length, 16000);
+                audioBuffer.getChannelData(0).set(float32Data);
+                
+                const source = audioState.context.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioState.context.destination);
+
+                // Schedule playback seamlessly
+                const currentTime = audioState.context.currentTime;
+                if (audioState.nextPlayTime < currentTime) {
+                    audioState.nextPlayTime = currentTime;
+                }
+                source.start(audioState.nextPlayTime);
+                audioState.nextPlayTime += audioBuffer.duration;
+            };
+
+            const cleanup = () => {
+                logMessage(`Cleaning up audio resources for person ID: ${personId}`);
+                delete audioSockets[personId];
+                const audioState = audioContexts[personId];
+                if (audioState) {
+                    audioState.context.close();
+                    delete audioContexts[personId];
+                }
+                streamDiv.remove();
+            };
+
+            newSocket.onclose = (event) => {
+                logMessage(`Audio stream for ${personId} disconnected. Reason: ${event.reason}`);
+                cleanup();
+            };
+
+            newSocket.onerror = (error) => {
+                logMessage(`Audio stream error for ${personId}: ${error.message || 'An unknown error occurred.'}`);
+                cleanup();
+            };
+
+            streamDiv.querySelector('button.disconnect').addEventListener('click', () => {
+                if (audioSockets[personId]) {
+                    audioSockets[personId].close();
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>

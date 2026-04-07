@@ -1,0 +1,27 @@
+[Unit]
+Description=DOA Audio Processing System (Pyenv)
+After=network.target
+
+[Service]
+# 使用你的当前用户
+User=digimeta
+# 项目实际工作目录
+WorkingDirectory=/opt/audio-doa-enhancement
+
+# --- Pyenv 环境配置 ---
+# 1. 如果你直接使用 pyenv 安装的 Python 3.11 (未创建项目 venv):
+ExecStart=/home/digimeta/.pyenv/versions/3.11/bin/python main.py run --host 0.0.0.0 --port 8000
+
+# 2. 如果是 conda 环境: (后台管理模式)
+# ExecStart=/home/digimeta/miniconda3/envs/doa_env/bin/python main.py --admin --host 0.0.0.0 --port 8080
+
+# 确保 Python 输出不被缓存
+Environment=PYTHONUNBUFFERED=1
+# 增加 pyenv 的 bin 路径到环境变量，以确保依赖库能正确加载
+Environment=PATH=/home/digimeta/.pyenv/versions/3.11/bin:/usr/local/bin:/usr/bin:/bin
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
