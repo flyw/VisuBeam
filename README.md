@@ -14,10 +14,11 @@ VisuBeam is more than just an audio processor; it is a cross-modal fusion engine
 
 ### Core Pipeline
 1.  **Visual-Aided DOA**: Uses external visual tracking data to guide the SRP-PHAT/TDOA localization.
-2.  **Spatial Filtering**: Employs Minimum Variance Distortionless Response (MVDR) to create a focused "beam" toward the speaker.
-3.  **Noise Estimation**: Uses Minima Controlled Recursive Averaging (MCRA) for dynamic environment adaptation.
-4.  **Dereverberation**: WPE (Weighted Prediction Error) for removing late reverberation.
-5.  **Neural Enhancement**: Optional DTLN (Dual-Path RNN) models for extreme noise suppression.
+2.  **Self-Noise Suppression (APM)**: WebRTC Audio Processing Module removes device-generated noise (speaker playback, echo) before further processing.
+3.  **Spatial Filtering**: Employs Minimum Variance Distortionless Response (MVDR) to create a focused "beam" toward the speaker.
+4.  **Noise Estimation**: Uses Minima Controlled Recursive Averaging (MCRA) for dynamic environment adaptation.
+5.  **Dereverberation**: WPE (Weighted Prediction Error) for removing late reverberation.
+6.  **Neural Enhancement**: Optional DTLN (Dual-Path RNN) models for extreme noise suppression.
 
 ---
 
@@ -137,6 +138,65 @@ python main.py run --audio-file /path/to/array_audio.wav
 - **Protocol**: Binary Hybrid Protocol
   - **Structure**: `[Header Length (4B, Big Endian)] [JSON Header] [Raw PCM Bytes]`
   - **PCM Format**: 16-bit Signed, 16kHz, Mono.
+
+---
+
+## 🎯 Real-Time Speaker Tracking
+
+VisuBeam supports **dynamic angle updates** during live audio processing, enabling continuous tracking of a moving speaker.
+
+### How It Works
+
+1. **Angle Injection**: External systems (camera tracking, manual input, or DOA estimation) send angle updates via the `POST /api/v1/tracking/update` endpoint.
+2. **Beamformer Steering**: The MVDR beamformer receives the new target angle in real-time and adjusts its spatial filter accordingly — no restart required.
+3. **Continuous Enhancement**: As the speaker moves, the system continuously tracks their position and returns the enhanced audio stream through the WebSocket.
+
+### Smooth Tracking During Speaker Movement
+
+When a speaker moves, the tracking is **continuous and smooth**, not instantaneous jumps:
+
+```
+Timeline: Speaker moves from 45° → 70° over 3 seconds
+
+t=0.0s  ████████████████████████████████████████  Target: 45° (stationary)
+t=0.1s  ████████████████████████████████████████  Target: 46° (slight movement)
+t=0.2s  ████████████████████████████████████████  Target: 47°
+t=0.3s  ████████████████████████████████████████  Target: 49°
+t=0.5s  ████████████████████████████████████████  Target: 52°
+t=0.8s  ████████████████████████████████████████  Target: 56°
+t=1.0s  ████████████████████████████████████████  Target: 59°
+t=1.5s  ████████████████████████████████████████  Target: 63°
+t=2.0s  ████████████████████████████████████████  Target: 66°
+t=2.5s  ████████████████████████████████████████  Target: 68°
+t=3.0s  ████████████████████████████████████████  Target: 70° (arrived)
+```
+
+At each processing frame (~32ms intervals), the beamformer receives the **latest target angle** and smoothly adjusts its spatial filter. The enhanced audio stream remains **uninterrupted** throughout the entire movement.
+
+### Key Features
+
+- **Frame-Level Steering**: Angle updates are applied at every processing frame (~32ms), ensuring the beamformer follows the speaker's movement in real-time.
+- **Inertial Hold Mechanism**: When DOA detection temporarily loses the target angle, the system holds the last known angle for a configurable number of frames (default: 4 frames ≈ 128ms), preventing audio dropouts during brief signal gaps.
+- **Multi-Person Support**: Each `person_id` maintains an independent enhancement service with its own target angle, allowing simultaneous tracking of multiple speakers.
+- **Timeout Protection**: If no angle update is received within the configured timeout (default: 10 seconds), the system holds the last known angle to prevent audio dropouts.
+- **Seamless Handoff**: When a speaker moves out of range, the `POST /api/v1/tracking/leave` endpoint gracefully releases resources.
+
+### Use Case Example
+
+```
+Camera tracks person walking across room:
+  45° → 46° → 47° → 49° → 52° → ... → 70°
+  
+  Each angle update:
+    POST /api/v1/tracking/update {"id": 101, "angle": <current_angle>}
+    ↓
+  MVDR beamformer steers to the new angle
+    ↓
+  Enhanced audio stream continues via WebSocket
+    (always optimized for speaker's current position)
+```
+
+Throughout this entire sequence, the enhanced audio stream continues **uninterrupted** via WebSocket, always optimized for the speaker's current position.
 
 ---
 
