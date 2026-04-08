@@ -1,5 +1,7 @@
 # VisuBeam
 
+<img src="logo.png" alt="VisuBeam Logo" width="512">
+
 **VisuBeam** is a high-performance, real-time audio processing framework designed for multi-channel microphone arrays. By leveraging **visual-aided guidance**, it achieves state-of-the-art precision in sound source localization (DOA) and speech enhancement.
 
 The system bridges the gap between raw multi-channel audio capture and crystal-clear target voice extraction, making it ideal for smart conferencing, robotics, and advanced human-computer interaction.
