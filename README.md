@@ -1,6 +1,6 @@
 # VisuBeam
 
-<img src="logo.png" alt="VisuBeam Logo" width="512">
+<img src="images/logo.png" alt="VisuBeam Logo" width="512">
 
 **VisuBeam** is a high-performance, real-time audio processing framework designed for multi-channel microphone arrays. By leveraging **visual-aided guidance**, it achieves state-of-the-art precision in sound source localization (DOA) and speech enhancement.
 
@@ -16,7 +16,7 @@ VisuBeam is more than just an audio processor; it is a cross-modal fusion engine
 1.  **Visual-Aided DOA**: Uses external visual tracking data to guide the SRP-PHAT/TDOA localization.
 2.  **Spatial Filtering**: Employs Minimum Variance Distortionless Response (MVDR) to create a focused "beam" toward the speaker.
 3.  **Noise Estimation**: Uses Minima Controlled Recursive Averaging (MCRA) for dynamic environment adaptation.
-4.  **Signal Conditioning**: Integrated WebRTC Audio Processing Module (APM) for echo cancellation and stationary noise reduction.
+4.  **Dereverberation**: WPE (Weighted Prediction Error) for removing late reverberation.
 5.  **Neural Enhancement**: Optional DTLN (Dual-Path RNN) models for extreme noise suppression.
 
 ---
@@ -194,6 +194,64 @@ To support multiple concurrent users/streams, VisuBeam implements:
 *   **Async Networking**: FastAPI-based WebSocket handlers that ensure audio delivery doesn't bottleneck the DSP pipeline.
 *   **Binary Hybrid Protocol**: A custom streaming format that prepends JSON metadata (containing frame-level energy and angles) to raw PCM bytes, optimized for real-time web clients.
 
+
+---
+
+## 📊 Audio Processing Results
+
+### Multi-Channel Input Waveform
+
+**4-Channel Raw Audio Input** (`output_4ch_2.wav`)
+
+<img src="images/output_4ch_2.png" alt="4-Channel Input Waveform" width="100%">
+
+*60-second recording captured by a 4-microphone array at 16kHz sample rate.*
+
+---
+
+### Processing Pipeline Outputs
+
+#### 1. MCRA Denoised Output
+
+<img src="images/denoised_output.png" alt="MCRA Denoised Waveform" width="100%">
+
+*Minima Controlled Recursive Averaging noise estimation and reduction.*
+
+---
+
+### MVDR Beamformer: Angle Comparison
+
+The MVDR beamformer creates a focused "beam" toward the target speaker direction. Below is a comparison of processing the same 4-channel audio with different target angles:
+
+#### MVDR Output — Target Angle: 90°
+
+<img src="images/mvdr_output_90.png" alt="MVDR Beamformer Output (90°)" width="100%">
+
+*Beamformer steered to 90° (broadside direction).*
+
+#### MVDR Output — Target Angle: 55°
+
+<img src="images/mvdr_output_55.png" alt="MVDR Beamformer Output (55°)" width="100%">
+
+*Beamformer steered to 55° (off-axis direction).*
+
+> **Note**: The difference in waveform amplitude between the two angles demonstrates the spatial filtering effect — the beamformer preserves signals from the target direction while suppressing interference from other directions.
+
+---
+
+### DOA (Direction of Arrival) Visualization
+
+#### SRP-PHAT Spatial Heatmap
+
+<img src="images/srp_heatmap.png" alt="SRP-PHAT Heatmap" width="60%">
+
+*Sound source localization using Steered Response Power with Phase Transform.*
+
+#### DOA Estimation Results
+
+<img src="images/doa_plot.png" alt="DOA Plot" width="60%">
+
+*Time-series DOA estimation showing detected sound source angles.*
 
 ---
 
